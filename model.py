@@ -21,7 +21,7 @@ class FlashMHA(nn.Module):
         return out
 
 class ViTEncoder(nn.Module):
-    def __init__(self, image_size=224, patch_size=16, emb_dim=768, depth=12):
+    def __init__(self,num_heads=12, image_size=224, patch_size=16, emb_dim=768, depth=12):
         super().__init__()
         self.patch_size = patch_size
         self.n_patches = (image_size // patch_size) ** 2
