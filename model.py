@@ -12,6 +12,8 @@ class FlashMHA(nn.Module):
     def forward(self, x):
         x_ln = self.ln(x)
         out = self.flash_attn(x_ln)
+        with torch.autocast(device_type=x.device.type,dtype=torch.float16):
+            out=self.flash_attn(x_ln)
         return self.proj(out)
 
 class ViTEncoder(nn.Module):
