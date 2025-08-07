@@ -11,10 +11,15 @@ class FlashMHA(nn.Module):
 
     def forward(self, x):
         x_ln = self.ln(x)
+
+        # Force FlashAttention input to float16 (or bfloat16)
+        if x_ln.dtype == torch.float32:
+            x_ln = x_ln.to(torch.float16)  # or use bfloat16 if H100 preferred
+
         out = self.flash_attn(x_ln)
-        with torch.autocast(device_type=x.device.type,dtype=torch.float16):
-            out=self.flash_attn(x_ln)
-        return self.proj(out)
+        out = self.proj(out)
+
+        return out
 
 class ViTEncoder(nn.Module):
     def __init__(self, image_size=224, patch_size=16, emb_dim=768, depth=12):
