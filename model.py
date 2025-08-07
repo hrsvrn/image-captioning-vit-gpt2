@@ -6,7 +6,7 @@ class FlashMHA(nn.Module):
     def __init__(self, embed_dim):
         super().__init__()
         self.ln = nn.LayerNorm(embed_dim)
-        self.flash_attn = FlashSelfAttention(causal=False)
+        self.flash_attn = FlashSelfAttention(embed_dim,num_heads,causal=False)
         self.proj = nn.Linear(embed_dim, embed_dim)
 
     def forward(self, x):
@@ -17,7 +17,6 @@ class FlashMHA(nn.Module):
             x_ln = x_ln.to(torch.float16)  # or use bfloat16 if H100 preferred
 
         out = self.flash_attn(x_ln)
-        out = self.proj(out)
 
         return out
 
