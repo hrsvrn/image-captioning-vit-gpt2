@@ -3,10 +3,10 @@ import torch.nn as nn
 from flash_attn.modules.mha import FlashSelfAttention
 
 class FlashMHA(nn.Module):
-    def __init__(self, embed_dim):
+    def __init__(self, embed_dim,num_heads):
         super().__init__()
         self.ln = nn.LayerNorm(embed_dim)
-        self.flash_attn = FlashSelfAttention(embed_dim,num_heads,causal=False)
+        self.flash_attn = FlashSelfAttention(embed_dim,num_heads=num_heads,causal=False)
         self.proj = nn.Linear(embed_dim, embed_dim)
 
     def forward(self, x):
@@ -29,7 +29,7 @@ class ViTEncoder(nn.Module):
         self.cls_token = nn.Parameter(torch.randn(1, 1, emb_dim))
         self.pos_embedding = nn.Parameter(torch.randn(1, self.n_patches + 1, emb_dim))
 
-        self.transformer = nn.Sequential(*[FlashMHA(emb_dim) for _ in range(depth)])
+        self.transformer = nn.Sequential(*[FlashMHA(emb_dim,num_heads) for _ in range(depth)])
 
     def forward(self, x):
         x = self.linear(x)
