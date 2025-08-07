@@ -1,0 +1,9 @@
+torch
+Pillow
+torchvision
+nltk
+wandb
+tqdm
+transformers
+safetensors
+flash_attn

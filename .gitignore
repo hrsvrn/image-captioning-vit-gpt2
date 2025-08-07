@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+
+# Eggs
+.eggs/
+*.egg-info/
+*.egg
+
+# Build artifacts
+build/
+dist/
+downloads/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.manifest
+*.spec
+
+# Databases
+*.db
+*.sqlite3
+
+# Logs
+*.log
+
+# Test and coverage
+.pytest_cache/
+.coverage
+.tox/
+htmlcov/
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+
+# Project specific
+coco_data/
+wandb/
