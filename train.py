@@ -4,8 +4,6 @@ from torch.amp import GradScaler, autocast
 from tqdm import tqdm
 import wandb
 import torch.nn.functional as F
-from transformers import GPT2Tokenizer
-import torchvision.transforms as transforms
 
 def train(model, dataloader, optimizer, tokenizer, device, scheduler=None, max_grad_norm=1.0):
     """

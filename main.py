@@ -8,17 +8,16 @@ from utils import get_tokenizer, get_transforms
 from train import train
 from evaluate import evaluate
 from safetensors.torch import save_file
-from transformers import GPT2Tokenizer
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {DEVICE}")
-BATCH_SIZE = 256  # Increased for H100 80GB VRAM
+BATCH_SIZE = 128# Increased for H100 80GB VRAM
 EPOCHS = 3
 DATA_DIR = "./coco_data"
 IMAGE_DIR = os.path.join(DATA_DIR, "train2017")
 ANNOTATION_FILE = os.path.join(DATA_DIR, "annotations/captions_train2017.json")
 
 # Setup
-wandb.init(project="vit-gpt2-captioning")
+wandb.init(project="vit-gpt2-captioning")git
 download_coco_dataset(DATA_DIR)
 tokenizer = get_tokenizer()
 dataset = CocoDataset(IMAGE_DIR, ANNOTATION_FILE, tokenizer, get_transforms())
@@ -31,7 +30,7 @@ for epoch in range(EPOCHS):
     print(f"Epoch {epoch + 1}/{EPOCHS}")
     avg_loss = train(model, dataloader, optimizer, tokenizer, DEVICE, scheduler)
     print(f"Average Training Loss: {avg_loss:.4f}")
-    bleu = evaluate(model, dataloader, tokenizer, DEVICE, max_samples=100)
+    bleu = evaluate(model, dataloader, tokenizer, DEVICE, max_samples=1000)
     print(f"Validation BLEU Score: {bleu:.4f}")
     wandb.log({"val/bleu": bleu, "epoch": epoch + 1})
     

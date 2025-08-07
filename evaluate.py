@@ -1,8 +1,8 @@
 import torch
-from nltk.translate.bleu_score import sentence_bleu
+from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
 from tqdm import tqdm
 
-def evaluate(model, dataloader, tokenizer, device, max_samples=100):
+def evaluate(model, dataloader, tokenizer, device, max_samples=500):
     """
     Evaluate model with BLEU scores
     
@@ -18,10 +18,10 @@ def evaluate(model, dataloader, tokenizer, device, max_samples=100):
     hypotheses = []
     
     samples_processed = 0
-    max_samples_per_batch = max_samples // len(dataloader) if len(dataloader) > 0 else max_samples
     
     with torch.no_grad():
-        for batch_idx, (images, input_ids, _) in enumerate(tqdm(dataloader, desc="Evaluating", total=min(len(dataloader), max_samples//dataloader.batch_size))):
+        max_batches = min(len(dataloader), (max_samples + dataloader.batch_size - 1) // dataloader.batch_size)
+        for batch_idx, (images, input_ids, _) in enumerate(tqdm(dataloader, desc="Evaluating", total=max_batches)):
             images = images.to(device)
             batch_size = images.size(0)
             
@@ -64,9 +64,23 @@ def evaluate(model, dataloader, tokenizer, device, max_samples=100):
     if not references or not hypotheses:
         print("No samples to evaluate")
         return 0.0
-        
-    bleu_scores = [sentence_bleu(ref, hyp) for ref, hyp in zip(references, hypotheses)]
+    
+    # Use smoothing function to handle low n-gram counts
+    smoothing = SmoothingFunction().method1
+    bleu_scores = []
+    
+    for ref, hyp in zip(references, hypotheses):
+        if len(hyp) > 0 and len(ref[0]) > 0:  # Skip empty captions
+            try:
+                # Use different weights for different n-grams, focusing more on 1-gram and 2-gram
+                bleu = sentence_bleu(ref, hyp, weights=(0.5, 0.3, 0.2, 0.0), smoothing_function=smoothing)
+                bleu_scores.append(bleu)
+            except:
+                continue
+    
     avg_bleu = sum(bleu_scores) / len(bleu_scores) if bleu_scores else 0.0
     
     print(f"Evaluated {len(bleu_scores)} samples")
+    print(f"Sample generated caption: {' '.join(hypotheses[0]) if hypotheses else 'None'}")
+    print(f"Sample reference caption: {' '.join(references[0][0]) if references else 'None'}")
     return avg_bleu
