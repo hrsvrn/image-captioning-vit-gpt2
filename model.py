@@ -1,81 +1,85 @@
 import torch
 import torch.nn as nn
-from flash_attn.modules.mha import MHA as FlashSelfAttention
+import timm
+from transformers import GPT2LMHeadModel, GPT2Config
 
-class FlashMHA(nn.Module):
-    def __init__(self, embed_dim, num_heads):
+class ViTEncoder(nn.Module):
+    def __init__(self, model_name='vit_base_patch16_224', pretrained=True):
         super().__init__()
-        self.ln1 = nn.LayerNorm(embed_dim)
-        self.flash_attn = FlashSelfAttention(embed_dim=embed_dim, num_heads=num_heads)
-        self.ln2 = nn.LayerNorm(embed_dim)
-        self.mlp = nn.Sequential(
-            nn.Linear(embed_dim, 4 * embed_dim),
-            nn.GELU(),
-            nn.Linear(4 * embed_dim, embed_dim)
-        )
+        # Use pretrained ViT from timm
+        self.vit = timm.create_model(model_name, pretrained=pretrained, num_classes=0)  # num_classes=0 removes classifier
+        self.feature_dim = self.vit.num_features  # 768 for base model
         
     def forward(self, x):
-        # Self-attention with residual
-        x = x + self.flash_attn(self.ln1(x))
-        # MLP with residual
-        x = x + self.mlp(self.ln2(x))
-        return x
-class ViTEncoder(nn.Module):
-    def __init__(self,num_heads=12, image_size=224, patch_size=16, emb_dim=768, depth=12):
-        super().__init__()
-        self.patch_size = patch_size
-        self.n_patches = (image_size // patch_size) ** 2
-        self.linear = nn.Conv2d(3, emb_dim, patch_size, patch_size)
-        self.cls_token = nn.Parameter(torch.randn(1, 1, emb_dim))
-        self.pos_embedding = nn.Parameter(torch.randn(1, self.n_patches + 1, emb_dim))
-
-        self.transformer = nn.Sequential(*[FlashMHA(emb_dim,num_heads) for _ in range(depth)])
-
-    def forward(self, x):
-        x = self.linear(x)
-        x = x.flatten(2).transpose(1, 2)
-        B, N, _ = x.shape
-        cls_tokens = self.cls_token.expand(B, -1, -1)
-        x = torch.cat([cls_tokens, x], dim=1)
-        x += self.pos_embedding[:, :x.size(1), :]
-        for block in self.transformer:
-            x = block(x)
-        return x[:, 0]
+        # Extract features from pretrained ViT
+        features = self.vit(x)  # (batch_size, 768)
+        return features
 
 class CaptionDecoder(nn.Module):
-    def __init__(self,vocab_size,d_model=768):
+    def __init__(self, vocab_size, d_model=768):
         super().__init__()
-        self.embed=nn.Embedding(vocab_size,768)
-        self.pos_embedding=nn.Parameter(torch.randn(1,512,d_model))
-        decoder_layer = nn.TransformerDecoderLayer(
-            d_model=d_model, 
-            nhead=12,
-            batch_first=True
+        # Use pretrained GPT2 configuration
+        config = GPT2Config(
+            vocab_size=vocab_size,
+            n_embd=d_model,
+            n_layer=12,
+            n_head=12,
+            resid_pdrop=0.1,
+            embd_pdrop=0.1,
+            attn_pdrop=0.1,
         )
-        self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=12) 
-        self.linear=nn.Linear(768,vocab_size)
+        
+        # Load pretrained GPT2 model
+        self.gpt2 = GPT2LMHeadModel(config)
+        
+        # Load pretrained weights from GPT2-small
+        pretrained_gpt2 = GPT2LMHeadModel.from_pretrained('gpt2')
+        
+        # Copy compatible weights
+        self.gpt2.transformer.wte.weight.data[:pretrained_gpt2.config.vocab_size] = pretrained_gpt2.transformer.wte.weight.data
+        self.gpt2.transformer.wpe.weight.data = pretrained_gpt2.transformer.wpe.weight.data
+        
+        # Copy transformer blocks
+        for i in range(min(len(self.gpt2.transformer.h), len(pretrained_gpt2.transformer.h))):
+            self.gpt2.transformer.h[i].load_state_dict(pretrained_gpt2.transformer.h[i].state_dict())
+        
+        # Copy layer norm
+        self.gpt2.transformer.ln_f.load_state_dict(pretrained_gpt2.transformer.ln_f.state_dict())
+        
+        # Image projection layer to align ViT features with GPT2 embeddings
+        self.image_proj = nn.Linear(d_model, d_model)
+        
     def forward(self, encoded_img, input_ids):
-        B, seq_len = input_ids.shape
+        batch_size, seq_len = input_ids.shape
         
-        # Token embeddings + positional embeddings
-        x = self.embed(input_ids) + self.pos_embedding[:, :seq_len, :]
+        # Project image features
+        img_features = self.image_proj(encoded_img)  # (B, d_model)
+        img_features = img_features.unsqueeze(1)  # (B, 1, d_model)
         
-        # Image features as memory (cross-attention)
-        memory = encoded_img.unsqueeze(1)  # (B, 1, d_model)
+        # Get token embeddings
+        token_embeddings = self.gpt2.transformer.wte(input_ids)  # (B, seq_len, d_model)
         
-        # Create causal mask for autoregressive generation
-        tgt_mask = nn.Transformer.generate_square_subsequent_mask(seq_len).to(input_ids.device)
+        # Concatenate image features with token embeddings
+        # Image acts as the first "token"
+        inputs_embeds = torch.cat([img_features, token_embeddings], dim=1)  # (B, seq_len+1, d_model)
         
-        x = self.decoder(x, memory, tgt_mask=tgt_mask)
-        return self.linear(x)
+        # Create position ids for the full sequence (including image)
+        position_ids = torch.arange(0, seq_len + 1, device=input_ids.device).unsqueeze(0).expand(batch_size, -1)
+        
+        # Forward through GPT2
+        outputs = self.gpt2(inputs_embeds=inputs_embeds, position_ids=position_ids)
+        
+        # Return logits for text tokens only (skip the image token)
+        return outputs.logits[:, 1:, :]  # (B, seq_len, vocab_size)
 
 class ImageCaptionModel(nn.Module):
-    def __init__(self,vocab_size):
+    def __init__(self, vocab_size):
         super().__init__()
-        self.encoder=ViTEncoder()
-        self.decoder=CaptionDecoder(vocab_size)
-    def forward(self,images,input_ids):
-        img_embed=self.encoder(images)
-        return self.decoder(img_embed,input_ids)
+        self.encoder = ViTEncoder(pretrained=True)  # Pretrained ViT
+        self.decoder = CaptionDecoder(vocab_size)   # Pretrained GPT2-based decoder
+        
+    def forward(self, images, input_ids):
+        img_embed = self.encoder(images)
+        return self.decoder(img_embed, input_ids)
 
 

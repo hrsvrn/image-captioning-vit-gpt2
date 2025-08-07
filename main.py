@@ -17,13 +17,17 @@ IMAGE_DIR = os.path.join(DATA_DIR, "train2017")
 ANNOTATION_FILE = os.path.join(DATA_DIR, "annotations/captions_train2017.json")
 
 # Setup
-wandb.init(project="vit-gpt2-captioning")git
+wandb.init(project="vit-gpt2-captioning")
 download_coco_dataset(DATA_DIR)
 tokenizer = get_tokenizer()
 dataset = CocoDataset(IMAGE_DIR, ANNOTATION_FILE, tokenizer, get_transforms())
 dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=16, pin_memory=True, persistent_workers=True)
 model = ImageCaptionModel(vocab_size=len(tokenizer)).to(DEVICE)
-optimizer = torch.optim.AdamW(model.parameters(), lr=2e-4, weight_decay=0.01, betas=(0.9, 0.95))
+# Lower learning rate for fine-tuning pretrained models
+optimizer = torch.optim.AdamW([
+    {'params': model.encoder.parameters(), 'lr': 1e-5},  # Very low LR for pretrained ViT
+    {'params': model.decoder.parameters(), 'lr': 5e-5}   # Low LR for pretrained GPT2
+], weight_decay=0.01, betas=(0.9, 0.95))
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS)
 
 for epoch in range(EPOCHS):
