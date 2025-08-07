@@ -2,7 +2,7 @@ import torch
 from nltk.translate.bleu_score import sentence_bleu
 from tqdm import tqdm
 
-def evaluate(model, dataloader, tokenizer, device, max_samples=500):
+def evaluate(model, dataloader, tokenizer, device, max_samples=100):
     """
     Evaluate model with BLEU scores
     
