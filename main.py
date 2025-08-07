@@ -11,8 +11,8 @@ from safetensors.torch import save_file
 from transformers import GPT2Tokenizer
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {DEVICE}")
-BATCH_SIZE = 128  # Increased for H100 80GB VRAM
-EPOCHS = 10
+BATCH_SIZE = 256  # Increased for H100 80GB VRAM
+EPOCHS = 3
 DATA_DIR = "./coco_data"
 IMAGE_DIR = os.path.join(DATA_DIR, "train2017")
 ANNOTATION_FILE = os.path.join(DATA_DIR, "annotations/captions_train2017.json")
