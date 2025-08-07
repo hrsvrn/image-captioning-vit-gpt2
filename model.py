@@ -1,25 +1,25 @@
 import torch
 import torch.nn as nn
-from flash_attn.modules.mha import FlashSelfAttention
+from flash_attn.modules.mha import MHA as FlashSelfAttention
 
 class FlashMHA(nn.Module):
-    def __init__(self, embed_dim,num_heads):
+    def __init__(self, embed_dim, num_heads):
         super().__init__()
-        self.ln = nn.LayerNorm(embed_dim)
-        self.flash_attn = FlashSelfAttention(embed_dim,num_heads=num_heads,causal=False)
-        self.proj = nn.Linear(embed_dim, embed_dim)
-
+        self.ln1 = nn.LayerNorm(embed_dim)
+        self.flash_attn = FlashSelfAttention(embed_dim=embed_dim, num_heads=num_heads)
+        self.ln2 = nn.LayerNorm(embed_dim)
+        self.mlp = nn.Sequential(
+            nn.Linear(embed_dim, 4 * embed_dim),
+            nn.GELU(),
+            nn.Linear(4 * embed_dim, embed_dim)
+        )
+        
     def forward(self, x):
-        x_ln = self.ln(x)
-
-        # Force FlashAttention input to float16 (or bfloat16)
-        if x_ln.dtype == torch.float32:
-            x_ln = x_ln.to(torch.float16)  # or use bfloat16 if H100 preferred
-
-        out = self.flash_attn(x_ln)
-
-        return out
-
+        # Self-attention with residual
+        x = x + self.flash_attn(self.ln1(x))
+        # MLP with residual
+        x = x + self.mlp(self.ln2(x))
+        return x
 class ViTEncoder(nn.Module):
     def __init__(self,num_heads=12, image_size=224, patch_size=16, emb_dim=768, depth=12):
         super().__init__()
@@ -43,17 +43,30 @@ class ViTEncoder(nn.Module):
         return x[:, 0]
 
 class CaptionDecoder(nn.Module):
-    def __init__(self,vocab_size):
+    def __init__(self,vocab_size,d_model=768):
         super().__init__()
         self.embed=nn.Embedding(vocab_size,768)
-        self.decoder=nn.TransformerDecoder(
-            nn.TransformerDecoderLayer(d_model=768,nhead=12),num_layers=12
+        self.pos_embedding=nn.Parameter(torch.randn(1,512,d_model))
+        decoder_layer = nn.TransformerDecoderLayer(
+            d_model=d_model, 
+            nhead=12,
+            batch_first=True
         )
+        self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=12) 
         self.linear=nn.Linear(768,vocab_size)
-    def forward(self,encoded_img,input_ids):
-        x=self.embed(input_ids)
-        encoded_img=encoded_img.unsqueeze(1).repeat(1,x.size(1),1)
-        x=self.decoder(x,encoded_img)
+    def forward(self, encoded_img, input_ids):
+        B, seq_len = input_ids.shape
+        
+        # Token embeddings + positional embeddings
+        x = self.embed(input_ids) + self.pos_embedding[:, :seq_len, :]
+        
+        # Image features as memory (cross-attention)
+        memory = encoded_img.unsqueeze(1)  # (B, 1, d_model)
+        
+        # Create causal mask for autoregressive generation
+        tgt_mask = nn.Transformer.generate_square_subsequent_mask(seq_len).to(input_ids.device)
+        
+        x = self.decoder(x, memory, tgt_mask=tgt_mask)
         return self.linear(x)
 
 class ImageCaptionModel(nn.Module):

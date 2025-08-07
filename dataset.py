@@ -26,7 +26,13 @@ class CocoDataset(Dataset):
     def __getitem__(self, idx):
         entry = self.entries[idx]
         image_path = os.path.join(self.image_dir, self.image_id_to_filename[entry["image_id"]])
-        image = Image.open(image_path).convert("RGB")
+        
+        try:
+            image = Image.open(image_path).convert("RGB")
+        except (IOError, OSError) as e:
+            print(f"Error loading image {image_path}: {e}")
+            # Return a black image as fallback
+            image = Image.new('RGB', (224, 224), color='black')
 
         if self.transform:
             image = self.transform(image)
