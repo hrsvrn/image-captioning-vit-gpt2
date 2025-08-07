@@ -2,32 +2,39 @@ import torch
 import torch.nn as nn
 from flash_attn.modules.mha import FlashSelfAttention
 
-
-class VitEncoder(nn.Module):
-    def __init__(self,image_size=224,patch_size=16,embed_dim=768,depth=12,heads=12):
+class FlashMHA(nn.Module):
+    def __init__(self, embed_dim):
         super().__init__()
-        self.patch_size=patch_size
-        self.n_patches=(image_size//patch_size)**2 
-        self.linear=nn.Conv2d(3,embed_dim,patch_size,patch_size)
-        self.cls_token=nn.Parameter(torch.randn(1,1,embed_dim))
-        self.pos_embedding=nn.Parameter(torch.randn(1,self.n_patches+1,embed_dim))
-        self.transformer=nn.Sequential(*[
-            nn.Sequential(
-                nn.LayerNorm(embed_dim),
-                FlashSelfAttention(dim=embed_dim,causal=False),
-                nn.Linear(embed_dim,embed_dim)
-            )for _ in range(depth)
-        ])
-    def forward(self,x):
-        x=self.linear(x)
-        x=x.flatten(2).transpose(1,2)
-        B,N,_=x.shape
-        cls_tokens=self.cls_token.expand(B,-1,1)
-        x=torch.cat([cls_tokens,x],dim=1)
-        x+=self.pos_embedding[:,:N+1,:]
+        self.ln = nn.LayerNorm(embed_dim)
+        self.flash_attn = FlashSelfAttention(causal=False)
+        self.proj = nn.Linear(embed_dim, embed_dim)
+
+    def forward(self, x):
+        x_ln = self.ln(x)
+        out = self.flash_attn(x_ln)
+        return self.proj(out)
+
+class ViTEncoder(nn.Module):
+    def __init__(self, image_size=224, patch_size=16, emb_dim=768, depth=12):
+        super().__init__()
+        self.patch_size = patch_size
+        self.n_patches = (image_size // patch_size) ** 2
+        self.linear = nn.Conv2d(3, emb_dim, patch_size, patch_size)
+        self.cls_token = nn.Parameter(torch.randn(1, 1, emb_dim))
+        self.pos_embedding = nn.Parameter(torch.randn(1, self.n_patches + 1, emb_dim))
+
+        self.transformer = nn.Sequential(*[FlashMHA(emb_dim) for _ in range(depth)])
+
+    def forward(self, x):
+        x = self.linear(x)
+        x = x.flatten(2).transpose(1, 2)
+        B, N, _ = x.shape
+        cls_tokens = self.cls_token.expand(B, -1, -1)
+        x = torch.cat([cls_tokens, x], dim=1)
+        x += self.pos_embedding[:, :x.size(1), :]
         for block in self.transformer:
-            x=block(x)
-        return x[:,0]
+            x = block(x)
+        return x[:, 0]
 
 class CaptionDecoder(nn.Module):
     def __init__(self,vocab_size):
@@ -46,7 +53,7 @@ class CaptionDecoder(nn.Module):
 class ImageCaptionModel(nn.Module):
     def __init__(self,vocab_size):
         super().__init__()
-        self.encoder=VitEncoder()
+        self.encoder=ViTEncoder()
         self.decoder=CaptionDecoder(vocab_size)
     def forward(self,images,input_ids):
         img_embed=self.encoder(images)
