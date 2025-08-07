@@ -1,6 +1,6 @@
 
 import torch
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 from tqdm import tqdm
 import wandb
 import torch.nn.functional as F
@@ -20,7 +20,7 @@ def train(model, dataloader, optimizer, tokenizer, device, scheduler=None, max_g
         scheduler: Learning rate scheduler (optional)
         max_grad_norm: Maximum gradient norm for clipping (default: 1.0)
     """
-    scaler = GradScaler()
+    scaler = GradScaler('cuda')
     model.train()
     total_loss = 0
     
@@ -28,7 +28,7 @@ def train(model, dataloader, optimizer, tokenizer, device, scheduler=None, max_g
         images, input_ids = images.to(device), input_ids.to(device)
         optimizer.zero_grad()
         
-        with autocast():
+        with autocast('cuda'):
             logits = model(images, input_ids[:, :-1])
             loss = F.cross_entropy(
                 logits.view(-1, logits.size(-1)), 

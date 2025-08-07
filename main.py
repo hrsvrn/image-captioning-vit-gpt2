@@ -31,7 +31,7 @@ for epoch in range(EPOCHS):
     print(f"Epoch {epoch + 1}/{EPOCHS}")
     avg_loss = train(model, dataloader, optimizer, tokenizer, DEVICE, scheduler)
     print(f"Average Training Loss: {avg_loss:.4f}")
-    bleu = evaluate(model, dataloader, tokenizer, DEVICE)
+    bleu = evaluate(model, dataloader, tokenizer, DEVICE, max_samples=100)
     print(f"Validation BLEU Score: {bleu:.4f}")
     wandb.log({"val/bleu": bleu, "epoch": epoch + 1})
     
